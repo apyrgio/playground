@@ -102,8 +102,14 @@ jobs:
         id: parse_gh_ref
         uses: olegtarasov/get-tag@v2
 
+      - name: Set Git tag
+        uses: allenevans/set-env@v1.0.0
+        with:
+          overwrite: true
+          GIT_TAG_NAME: ${{ steps.parse_gh_ref.outputs.tag }}
+
       - name: Print tag
-        run: echo $GIT_TAG_NAME
+        run: echo ${{ env.GIT_TAG_NAME }}
 
       - name: Upload binaries
         uses: actions/upload-artifact@v1
@@ -124,7 +130,6 @@ jobs:
       - name: Get branch/tag name
         id: parse_gh_ref
         uses: olegtarasov/get-tag@v2
-
       - name: Create release
         id: create_release
         uses: actions/create-release@v1
@@ -140,47 +145,69 @@ jobs:
               - Third Change
           draft: true
           prerelease: false
-      - name: Download binary (Linux)
+      - name: Store release context
+        run: |
+            cat <<EOF > release_context
+            ::set-output name=tag::${{ steps.parse_gh_ref.outputs.tag }}
+            ::set-output name=upload_url::${{ steps.create_release.outputs.upload_url }}
+            EOF
+      - name: Upload release context
+        uses: actions/upload-artifact@v1
+        with:
+          name: release_context
+          path: release_context
+
+  release_assets:
+    name: Upload release assets (${{ matrix.os }})
+    needs: release
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+          - macOS-latest
+
+        include:
+          - os: ubuntu-latest
+            arch: linux_amd64
+          - os: windows-latest
+            arch: windows_amd64
+            extension: .exe
+          - os: macOS-latest
+            arch: darwin_amd64
+
+    steps:
+      - name: Download release context
         uses: actions/download-artifact@v1
         with:
-          name: test_${{ steps.parse_gh_ref.outputs.tag }}_linux_amd64
-          path: assets_linux
-      - name: Download binary (Windows)
+          name: release_context
+          path: ctx
+      - name: Restore release context
+        id: release_ctx
+        run: cat ctx/release_context
+
+      # REMOVE ME
+      - name: Dump steps context
+        env:
+          STEPS_CONTEXT: ${{ toJson(steps) }}
+        run: echo "$STEPS_CONTEXT"
+      - name: Echo context
+        run: echo "$(cat ctx/release_context)"
+      ##############
+
+      - name: Download binary
         uses: actions/download-artifact@v1
         with:
-          name: test_${{ steps.parse_gh_ref.outputs.tag }}_windows_amd64.exe
-          path: assets_windows
-      - name: Download binary (MacOS)
-        uses: actions/download-artifact@v1
-        with:
-          name: test_${{ steps.parse_gh_ref.outputs.tag }}_darwin_amd64
-          path: assets_macos
-      #- name: See contents of assets
-      #  run: ls -lah assets/
-      - name: Upload release asset (Linux)
+          name: test_${{ steps.release_ctx.outputs.tag }}_${{ matrix.arch }}${{ matrix.extension}}
+          path: assets_${{ matrix.arch }}
+      - name: Upload release asset
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: assets_linux/test
-          asset_name: test_${{ steps.parse_gh_ref.outputs.tag }}_linux_amd64
-          asset_content_type: application/octet-stream
-      - name: Upload release asset (Windows)
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: assets_windows/test.exe
-          asset_name: test_${{ steps.parse_gh_ref.outputs.tag }}_windows_amd64.exe
-          asset_content_type: application/octet-stream
-      - name: Upload release asset (MacOS)
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: assets_macos/test
-          asset_name: test_${{ steps.parse_gh_ref.outputs.tag }}_darwin_amd64
+          upload_url: ${{ steps.release_ctx.outputs.upload_url }}
+          asset_path: assets_${{ matrix.arch }}/test${{ matrix.extension }}
+          asset_name: test_${{ steps.release_ctx.outputs.tag }}_${{ matrix.arch }}${{ matrix.extension}}
           asset_content_type: application/octet-stream
