@@ -9,13 +9,22 @@ env:
   RUST_BACKTRACE: full
 
 jobs:
-  lint:
-    name: Lint
+  basic_checks:
+    name: Basic checks (cargo ${{ matrix.cmd }})
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        cmd:
+          - fmt
+          - doc
+
+        include:
+          - cmd: fmt
+            args: --all -- --check
+
     steps:
       - name: Checkout
-        uses: actions/checkout@v1
-
+        uses: actions/checkout@v2
       - name: Install Rust
         uses: actions-rs/toolchain@v1
         with:
@@ -23,31 +32,11 @@ jobs:
           toolchain: stable
           override: true
           components: rustfmt
-
-      - name: cargo fmt --check
+      - name: cargo ${{ matrix.cmd }}
         uses: actions-rs/cargo@v1
         with:
-          command: fmt
-          args: --all -- --check
-
-  docs:
-    name: Create docs
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v1
-
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-
-      - name: cargo doc
-        uses: actions-rs/cargo@v1
-        with:
-          command: doc
+          command: ${{ matrix.cmd }}
+          args: ${{ matrix.args }}
 
   test:
     name: Test ${{ matrix.rust }} on ${{ matrix.os }}
@@ -59,6 +48,34 @@ jobs:
           - beta
           - nightly
 
+        os:
+          - ubuntu-latest
+          - windows-latest
+          - macOS-latest
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Install Rust (${{ matrix.rust }})
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: ${{ matrix.rust }}
+          override: true
+
+      - name: Test
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: "-- --nocapture"
+
+  build:
+    name: Build on ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
         os:
           - ubuntu-latest
           - windows-latest
@@ -79,76 +96,85 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v2
 
-      - name: Install Rust (${{ matrix.rust }})
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: ${{ matrix.rust }}
-          override: true
-
       - name: Build
         uses: actions-rs/cargo@v1
         with:
           command: build
           args: "--release"
 
-      - name: Test
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: "-- --nocapture"
-
-      - name: Get branch/tag name
-        id: parse_gh_ref
-        uses: olegtarasov/get-tag@v2
-
-      - name: Set Git tag
-        uses: allenevans/set-env@v1.0.0
-        with:
-          overwrite: true
-          GIT_TAG_NAME: ${{ steps.parse_gh_ref.outputs.tag }}
-
-      - name: Print tag
-        run: echo ${{ env.GIT_TAG_NAME }}
-
       - name: Upload binaries
         uses: actions/upload-artifact@v1
-        if: matrix.rust == 'stable'
         with:
-          #name: test_${{ github.ref }}_${{ matrix.arch }}
-          name: test_${{ steps.parse_gh_ref.outputs.tag }}_${{ matrix.arch }}${{ matrix.extension}}
-          path: "target/release/test${{ matrix.extension}}"
+          name: test_${{ matrix.arch }}${{ matrix.extension}}
+          path: "target/release/test${{ matrix.extension }}"
 
-  release:
+  create_release:
     name: Create a release
     runs-on: ubuntu-latest
-    needs: test
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: ["basic_checks", "test", "build"]
+    if: |
+      github.event_name == 'push'
+      && (startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/master')
     steps:
       - name: Checkout
-        uses: actions/checkout@v1
-      - name: Get branch/tag name
-        id: parse_gh_ref
-        uses: olegtarasov/get-tag@v2
+        uses: actions/checkout@v2
+      - name: Set release context (semver)
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          cat <<EOF
+          ::set-env name=GITHUB_RELEASE_TAG::${GITHUB_REF#refs/tags/}
+          ::set-env name=GITHUB_RELEASE_DRAFT::false
+          ::set-env name=GITHUB_RELEASE_PRERELEASE::false
+          EOF
+      - name: Set release context (latest)
+        if: github.ref == 'refs/heads/master'
+        run: |
+          cat <<EOF
+          ::set-env name=GITHUB_RELEASE_TAG::latest
+          ::set-env name=GITHUB_RELEASE_DRAFT::false
+          ::set-env name=GITHUB_RELEASE_PRERELEASE::true
+          EOF
+      - name: Bump tag (latest)
+        if: github.ref == 'refs/heads/master'
+        run: |
+            git tag latest master
+            git push -f origin latest
+      - name: Delete previous release
+        # See: https://help.github.com/en/actions/configuring-and-managing-workflows/authenticating-with-the-github_token#example-calling-the-rest-api
+        run: |
+          set -e
+
+          # Ensure that jq exists
+          jq --version
+
+          # Get the URL of the previous release, if any.
+          RELEASE_URL=$(
+              curl -H "Authorization: bearer ${{ secrets.GITHUB_TOKEN }}" \
+              https://api.github.com/repos/${{ github.repository }}/releases/tags/${{ env.GITHUB_RELEASE_TAG }} \
+              | jq -r ".url"
+          )
+
+          # Delete the previous release, if it exists.
+          [[ ${RELEASE_URL} ]] && curl -X DELETE \
+              -H "Authorization: bearer ${{ secrets.GITHUB_TOKEN }}" \
+              ${RELEASE_URL}
       - name: Create release
         id: create_release
         uses: actions/create-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: ${{ github.ref }}
-          release_name: Release ${{ github.ref }}
+          tag_name: ${{ env.GITHUB_RELEASE_TAG }}
+          release_name: Release ${{ env.GITHUB_RELEASE_TAG }}
           body: |
-            Changes in this Release
-              - First Change
-              - Second Change
-              - Third Change
-          draft: true
-          prerelease: false
+            Release for tag `${{ env.GITHUB_RELEASE_TAG }}`. For more info,
+            read the respective section in the changelog.
+          draft: ${{ env.GITHUB_RELEASE_DRAFT }}
+          prerelease: ${{ env.GITHUB_RELEASE_PRERELEASE }}
       - name: Store release context
         run: |
             cat <<EOF > release_context
-            ::set-output name=tag::${{ steps.parse_gh_ref.outputs.tag }}
+            ::set-output name=ref::${{ env.GITHUB_RELEASE_TAG }}
             ::set-output name=upload_url::${{ steps.create_release.outputs.upload_url }}
             EOF
       - name: Upload release context
@@ -157,26 +183,23 @@ jobs:
           name: release_context
           path: release_context
 
-  release_assets:
-    name: Upload release assets (${{ matrix.os }})
-    needs: release
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+  upload_assets:
+    name: Upload release assets (${{ matrix.arch }})
+    needs: create_release
+    if: |
+      github.event_name == 'push'
+      && (startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/master')
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        os:
-          - ubuntu-latest
-          - windows-latest
-          - macOS-latest
+        arch:
+          - linux_amd64
+          - windows_amd64
+          - darwin_amd64
 
         include:
-          - os: ubuntu-latest
-            arch: linux_amd64
-          - os: windows-latest
-            arch: windows_amd64
+          - arch: windows_amd64
             extension: .exe
-          - os: macOS-latest
-            arch: darwin_amd64
 
     steps:
       - name: Download release context
@@ -187,20 +210,10 @@ jobs:
       - name: Restore release context
         id: release_ctx
         run: cat ctx/release_context
-
-      # REMOVE ME
-      - name: Dump steps context
-        env:
-          STEPS_CONTEXT: ${{ toJson(steps) }}
-        run: echo "$STEPS_CONTEXT"
-      - name: Echo context
-        run: echo "$(cat ctx/release_context)"
-      ##############
-
       - name: Download binary
         uses: actions/download-artifact@v1
         with:
-          name: test_${{ steps.release_ctx.outputs.tag }}_${{ matrix.arch }}${{ matrix.extension}}
+          name: test_${{ matrix.arch }}${{ matrix.extension}}
           path: assets_${{ matrix.arch }}
       - name: Upload release asset
         uses: actions/upload-release-asset@v1
@@ -209,5 +222,5 @@ jobs:
         with:
           upload_url: ${{ steps.release_ctx.outputs.upload_url }}
           asset_path: assets_${{ matrix.arch }}/test${{ matrix.extension }}
-          asset_name: test_${{ steps.release_ctx.outputs.tag }}_${{ matrix.arch }}${{ matrix.extension}}
+          asset_name: test_${{ steps.release_ctx.outputs.ref }}_${{ matrix.arch }}${{ matrix.extension}}
           asset_content_type: application/octet-stream
