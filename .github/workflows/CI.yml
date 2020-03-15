@@ -3,7 +3,7 @@ on:
   pull_request:
   push:
   schedule:
-    - cron: '42 23 * * *'
+    - cron: '0 0 * * *'
 
 env:
   RUST_BACKTRACE: full
