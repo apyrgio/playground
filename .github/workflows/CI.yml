@@ -165,10 +165,13 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ env.GITHUB_RELEASE_TAG }}
-          release_name: Release ${{ env.GITHUB_RELEASE_TAG }}
+          release_name: Release `${{ env.GITHUB_RELEASE_TAG }}`
           body: |
-            Release for tag `${{ env.GITHUB_RELEASE_TAG }}`. For more info,
-            read the respective section in the changelog.
+            # Changes
+
+            The changes for this release can be found in the [changelog].
+
+            [changelog]: https://github.com/${{ github.repository }}/blob/${{ env.GITHUB_RELEASE_TAG }}/CHANGELOG.md
           draft: ${{ env.GITHUB_RELEASE_DRAFT }}
           prerelease: ${{ env.GITHUB_RELEASE_PRERELEASE }}
       - name: Store release context
