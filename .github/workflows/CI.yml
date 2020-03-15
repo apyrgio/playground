@@ -123,6 +123,7 @@ jobs:
         run: |
           cat <<EOF
           ::set-env name=GITHUB_RELEASE_TAG::${GITHUB_REF#refs/tags/}
+          ::set-env name=GITHUB_RELEASE_NAME::Release ${GITHUB_REF#refs/tags/}
           ::set-env name=GITHUB_RELEASE_DRAFT::false
           ::set-env name=GITHUB_RELEASE_PRERELEASE::false
           EOF
@@ -131,6 +132,7 @@ jobs:
         run: |
           cat <<EOF
           ::set-env name=GITHUB_RELEASE_TAG::latest
+          ::set-env name=GITHUB_RELEASE_NAME::Nightly/Latest
           ::set-env name=GITHUB_RELEASE_DRAFT::false
           ::set-env name=GITHUB_RELEASE_PRERELEASE::true
           EOF
@@ -165,9 +167,11 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ env.GITHUB_RELEASE_TAG }}
-          release_name: Release `${{ env.GITHUB_RELEASE_TAG }}`
+          release_name: ${{ env.GITHUB_RELEASE_NAME }}
           body: |
-            # Changes
+            This release contains the latest assets for tag `${{ env.GITHUB_RELEASE_TAG }}`.
+
+            ## Changes
 
             The changes for this release can be found in the [changelog].
 
