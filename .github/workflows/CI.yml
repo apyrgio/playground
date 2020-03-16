@@ -112,35 +112,17 @@ jobs:
     name: Create a release
     runs-on: ubuntu-latest
     needs: ["basic_checks", "test", "build"]
-    if: |
-      (github.event_name == 'push' || github.event_name == 'schedule')
-      && (startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/master')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     steps:
-      - name: Checkout
-        uses: actions/checkout@v2
-      - name: Set release context (semver)
+      - name: Set release context
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
           cat <<EOF
           ::set-env name=GITHUB_RELEASE_TAG::${GITHUB_REF#refs/tags/}
           ::set-env name=GITHUB_RELEASE_NAME::Release ${GITHUB_REF#refs/tags/}
-          ::set-env name=GITHUB_RELEASE_DRAFT::false
+          ::set-env name=GITHUB_RELEASE_DRAFT::true
           ::set-env name=GITHUB_RELEASE_PRERELEASE::false
           EOF
-      - name: Set release context (latest)
-        if: github.ref == 'refs/heads/master'
-        run: |
-          cat <<EOF
-          ::set-env name=GITHUB_RELEASE_TAG::latest
-          ::set-env name=GITHUB_RELEASE_NAME::Nightly/Latest
-          ::set-env name=GITHUB_RELEASE_DRAFT::false
-          ::set-env name=GITHUB_RELEASE_PRERELEASE::true
-          EOF
-      - name: Bump tag (latest)
-        if: github.ref == 'refs/heads/master'
-        run: |
-            git tag latest master
-            git push -f origin latest
       - name: Delete previous release
         # See: https://help.github.com/en/actions/configuring-and-managing-workflows/authenticating-with-the-github_token#example-calling-the-rest-api
         run: |
@@ -157,7 +139,7 @@ jobs:
           )
 
           # Delete the previous release, if it exists.
-          [[ ${RELEASE_URL} ]] && curl -X DELETE \
+          [[ ${RELEASE_URL} ]] && curl -f -X DELETE \
               -H "Authorization: bearer ${{ secrets.GITHUB_TOKEN }}" \
               ${RELEASE_URL}
       - name: Create release
@@ -193,9 +175,7 @@ jobs:
   upload_assets:
     name: Upload release assets (${{ matrix.arch }})
     needs: create_release
-    if: |
-      (github.event_name == 'push' || github.event_name == 'schedule')
-      && (startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/master')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     strategy:
       matrix:
