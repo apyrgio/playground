@@ -3,10 +3,10 @@ on:
   pull_request:
   push:
   schedule:
-    - cron: '0 0 * * *'
+    - cron: '0 0 * * *' # Run every day at 00:00 UTC.
 
 env:
-  RUST_BACKTRACE: full
+  RUST_BACKTRACE: full  # Shows more info when a test fails.
 
 jobs:
   basic_checks:
@@ -17,7 +17,6 @@ jobs:
         cmd:
           - fmt
           - doc
-
         include:
           - cmd: fmt
             args: --all -- --check
@@ -25,6 +24,7 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v2
+
       - name: Install Rust
         uses: actions-rs/toolchain@v1
         with:
@@ -32,6 +32,7 @@ jobs:
           toolchain: stable
           override: true
           components: rustfmt
+
       - name: cargo ${{ matrix.cmd }}
         uses: actions-rs/cargo@v1
         with:
@@ -40,6 +41,7 @@ jobs:
 
   test:
     name: Test ${{ matrix.rust }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
@@ -47,17 +49,15 @@ jobs:
           - stable
           - beta
           - nightly
-
         os:
           - ubuntu-latest
           - windows-latest
           - macOS-latest
 
-    runs-on: ${{ matrix.os }}
-
     steps:
       - name: Checkout
         uses: actions/checkout@v2
+
       - name: Install Rust (${{ matrix.rust }})
         uses: actions-rs/toolchain@v1
         with:
@@ -69,10 +69,11 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: "-- --nocapture"
+          args: "-- --nocapture" # Allow printing the output of tests
 
   build:
     name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
@@ -80,7 +81,6 @@ jobs:
           - ubuntu-latest
           - windows-latest
           - macOS-latest
-
         include:
           - os: ubuntu-latest
             arch: linux_amd64
@@ -89,8 +89,6 @@ jobs:
             extension: .exe
           - os: macOS-latest
             arch: darwin_amd64
-
-    runs-on: ${{ matrix.os }}
 
     steps:
       - name: Checkout
@@ -115,16 +113,13 @@ jobs:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     steps:
       - name: Set release context
-        if: startsWith(github.ref, 'refs/tags/v')
         run: |
           cat <<EOF
           ::set-env name=GITHUB_RELEASE_TAG::${GITHUB_REF#refs/tags/}
           ::set-env name=GITHUB_RELEASE_NAME::Release ${GITHUB_REF#refs/tags/}
-          ::set-env name=GITHUB_RELEASE_DRAFT::true
-          ::set-env name=GITHUB_RELEASE_PRERELEASE::false
           EOF
+
       - name: Delete previous release
-        # See: https://help.github.com/en/actions/configuring-and-managing-workflows/authenticating-with-the-github_token#example-calling-the-rest-api
         run: |
           set -e
 
@@ -132,6 +127,7 @@ jobs:
           jq --version
 
           # Get the URL of the previous release, if any.
+          # See: https://help.github.com/en/actions/configuring-and-managing-workflows/authenticating-with-the-github_token#example-calling-the-rest-api
           RELEASE_URL=$(
               curl -H "Authorization: bearer ${{ secrets.GITHUB_TOKEN }}" \
               https://api.github.com/repos/${{ github.repository }}/releases/tags/${{ env.GITHUB_RELEASE_TAG }} \
@@ -142,6 +138,7 @@ jobs:
           [[ ${RELEASE_URL} ]] && curl -f -X DELETE \
               -H "Authorization: bearer ${{ secrets.GITHUB_TOKEN }}" \
               ${RELEASE_URL}
+
       - name: Create release
         id: create_release
         uses: actions/create-release@v1
@@ -150,6 +147,8 @@ jobs:
         with:
           tag_name: ${{ env.GITHUB_RELEASE_TAG }}
           release_name: ${{ env.GITHUB_RELEASE_NAME }}
+          draft: true
+          prerelease: false
           body: |
             This release contains the latest assets for tag `${{ env.GITHUB_RELEASE_TAG }}`.
 
@@ -158,14 +157,14 @@ jobs:
             The changes for this release can be found in the [changelog].
 
             [changelog]: https://github.com/${{ github.repository }}/blob/${{ env.GITHUB_RELEASE_TAG }}/CHANGELOG.md
-          draft: ${{ env.GITHUB_RELEASE_DRAFT }}
-          prerelease: ${{ env.GITHUB_RELEASE_PRERELEASE }}
+
       - name: Store release context
         run: |
             cat <<EOF > release_context
             ::set-output name=ref::${{ env.GITHUB_RELEASE_TAG }}
             ::set-output name=upload_url::${{ steps.create_release.outputs.upload_url }}
             EOF
+
       - name: Upload release context
         uses: actions/upload-artifact@v1
         with:
@@ -183,7 +182,6 @@ jobs:
           - linux_amd64
           - windows_amd64
           - darwin_amd64
-
         include:
           - arch: windows_amd64
             extension: .exe
@@ -194,14 +192,17 @@ jobs:
         with:
           name: release_context
           path: ctx
+
       - name: Restore release context
         id: release_ctx
         run: cat ctx/release_context
+
       - name: Download binary
         uses: actions/download-artifact@v1
         with:
           name: test_${{ matrix.arch }}${{ matrix.extension}}
           path: assets_${{ matrix.arch }}
+
       - name: Upload release asset
         uses: actions/upload-release-asset@v1
         env:
