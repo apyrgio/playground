@@ -122,22 +122,37 @@ jobs:
       - name: Delete previous release
         run: |
           set -e
+          set -x
 
           # Ensure that jq exists
+          echo "Checking that jq is installed."
           jq --version
 
           # Get the URL of the previous release, if any.
           # See: https://help.github.com/en/actions/configuring-and-managing-workflows/authenticating-with-the-github_token#example-calling-the-rest-api
+          echo "Checking if there is a previous release for ${{ env.GITHUB_RELEASE_TAG }}."
           RELEASE_URL=$(
               curl -H "Authorization: bearer ${{ secrets.GITHUB_TOKEN }}" \
               https://api.github.com/repos/${{ github.repository }}/releases/tags/${{ env.GITHUB_RELEASE_TAG }} \
               | jq -r ".url"
           )
+          echo "jq output: ${RELEASE_URL}"
 
-          # Delete the previous release, if it exists.
-          [[ ${RELEASE_URL} ]] && curl -f -X DELETE \
+          # If the release URL is empty or null, then a release does not exist
+          # and we can safely exit.
+          if [[ ${RELEASE_URL} == https* ]] ; then
+              echo "A previous release exists: ${RELEASE_URL}"
+          else
+              echo "No release was found. Exiting."
+              exit 0
+          fi
+
+          # Delete the previous release.
+          echo "Deleting the previous release."
+          curl -f -X DELETE \
               -H "Authorization: bearer ${{ secrets.GITHUB_TOKEN }}" \
               ${RELEASE_URL}
+          echo "The release was deleted successfully."
 
       - name: Create release
         id: create_release
