@@ -7,6 +7,7 @@ on:
 
 env:
   RUST_BACKTRACE: full  # Shows more info when a test fails.
+  BINARY_NAME: test
 
 jobs:
   basic_checks:
@@ -103,8 +104,8 @@ jobs:
       - name: Upload binaries
         uses: actions/upload-artifact@v1
         with:
-          name: ${{ github.event.repository.name }}_${{ matrix.arch }}${{ matrix.extension}}
-          path: "target/release/${{ github.event.repository.name }}${{ matrix.extension }}"
+          name: ${{ env.BINARY_NAME }}_${{ matrix.arch }}${{ matrix.extension}}
+          path: "target/release/${{ env.BINARY_NAME }}${{ matrix.extension }}"
 
   create_release:
     name: Create a release
@@ -176,7 +177,7 @@ jobs:
       - name: Download binary
         uses: actions/download-artifact@v1
         with:
-          name: ${{ github.event.repository.name }}_${{ matrix.arch }}${{ matrix.extension}}
+          name: ${{ env.BINARY_NAME }}_${{ matrix.arch }}${{ matrix.extension}}
           path: assets_${{ matrix.arch }}
 
       - name: Upload release asset
@@ -185,6 +186,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.release_ctx.outputs.upload_url }}
-          asset_path: assets_${{ matrix.arch }}/${{ github.event.repository.name }}${{ matrix.extension }}
-          asset_name: ${{ github.event.repository.name }}_${{ steps.release_ctx.outputs.ref }}_${{ matrix.arch }}${{ matrix.extension}}
+          asset_path: assets_${{ matrix.arch }}/${{ env.BINARY_NAME }}${{ matrix.extension }}
+          asset_name: ${{ env.BINARY_NAME }}_${{ steps.release_ctx.outputs.ref }}_${{ matrix.arch }}${{ matrix.extension}}
           asset_content_type: application/octet-stream
